@@ -16,6 +16,7 @@
 package org.jboss.netty.channel.socket.nio;
 
 import java.nio.channels.Selector;
+import java.nio.channels.spi.SelectorProvider;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -80,9 +81,12 @@ import org.jboss.netty.util.internal.ExecutorUtil;
  *
  * @apiviz.landmark
  */
-public class NioDatagramChannelFactory implements DatagramChannelFactory {
+public class NioDatagramChannelFactory
+        implements DatagramChannelFactory, NioChannelEntity {
 
     private final Executor workerExecutor;
+    private final SelectorProvider provider;
+    private final int CONSTRAINT_LEVEL;
     private final NioDatagramPipelineSink sink;
 
     /**
@@ -101,6 +105,9 @@ public class NioDatagramChannelFactory implements DatagramChannelFactory {
     /**
      * Creates a new instance.
      *
+     * This factory will use the JVM wide default NIO implementation as obtained
+     * by {@link SelectorProvider#provider()}, and its default constraint level.
+     *
      * @param workerExecutor
      *        the {@link Executor} which will execute the I/O worker threads
      * @param workerCount
@@ -108,19 +115,81 @@ public class NioDatagramChannelFactory implements DatagramChannelFactory {
      */
     public NioDatagramChannelFactory(final Executor workerExecutor,
             final int workerCount) {
+        this(new Builder(workerExecutor).workerCount(workerCount));
+    }
+
+    private NioDatagramChannelFactory(Builder builder) {
+        int workerCount = builder.getWorkerCount();
         if (workerCount <= 0) {
             throw new IllegalArgumentException(String
                     .format("workerCount (%s) must be a positive integer.",
                             workerCount));
         }
-
-        if (workerExecutor == null) {
+        if (builder.workerExecutor == null) {
             throw new NullPointerException(
                     "workerExecutor argument must not be null");
         }
-        this.workerExecutor = workerExecutor;
+        this.workerExecutor = builder.workerExecutor;
+        this.provider = builder.getProvider();
+        this.CONSTRAINT_LEVEL = NioProviderMetadata.getConstraintLevel(provider,
+                builder.getConstraintSpec());
 
         sink = new NioDatagramPipelineSink(workerExecutor, workerCount);
+    }
+
+    /**
+     * Implements the 'Builder' design pattern to allow for more complex initialisation
+     * of this NIO based channel factory. In particular, this builder allows custom NIO
+     * provider (SPI) implementations to be used.
+     * <p>
+     * To obtain a channel factory via this builder use the provided constructor with its
+     * mandatory argument(s) and then use the provided public methods in order to manually
+     * specify the exact configuration of the factory. All setting methods for optional
+     * configuration values return a reference to {@code this} allowing invocation chaining
+     * Finally, invoke {@link #build()} in order to obtain a channel factory that is ready
+     * to use.
+     * <p>
+     * Builder instances can be reused and reconfigured between invocations of
+     * {@link #build()}, each factory returned having a separate NIO implementation context.
+     * <p>
+     * Example usage:
+     * <p>
+     * <pre><code>
+     *     NioDatagramChannelFactory factory =
+     *         new NioDatagramChannelFactory.Builder(workerExecutor)
+     *             .provider(customNioProvider)
+     *             .constraintSpec(NioProviderMetadata.ConstraintSpec.NO_WAKE)
+     *             .workerCount(4)
+     *             .build();
+     * </code></pre>
+     *<p>
+     * Instances of this class are <em>not thread safe</em> and should be synchronized externally
+     * if shared between threads.
+     */
+    public static final class Builder
+            extends NioChannelFactoryBuilder<NioDatagramChannelFactory, Builder> {
+
+        /**
+         * Creates a builder instance that will return initialised and ready to use
+         * {@link NioDatagramChannelFactory} instances. Before invoking build the
+         * optional parameters can be changed from their default values.
+         *
+         * @param workerExecutor
+         *        the {@link Executor} which will execute the I/O worker threads
+         */
+        public Builder (Executor workerExecutor) {
+            super(workerExecutor);
+        }
+
+        @Override
+        public NioDatagramChannelFactory build() {
+            return new NioDatagramChannelFactory(this);
+        }
+
+        @Override
+        Builder getThis() {
+            return this;
+        }
     }
 
     @Override
@@ -131,5 +200,15 @@ public class NioDatagramChannelFactory implements DatagramChannelFactory {
     @Override
     public void releaseExternalResources() {
         ExecutorUtil.terminate(workerExecutor);
+    }
+
+    @Override
+    public SelectorProvider getProvider() {
+        return provider;
+    }
+
+    @Override
+    public int getConstraintLevel() {
+        return CONSTRAINT_LEVEL;
     }
 }

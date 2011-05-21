@@ -85,6 +85,11 @@ class NioDatagramWorker implements Runnable {
      * The NIO {@link Selector}.
      */
     volatile Selector selector;
+    
+    /**
+     * The selector constraint level supported by this worker's NIO context.
+     */
+    private int CONSTRAINT_LEVEL;
 
     /**
      * Boolean that controls determines if a blocked Selector.select should
@@ -144,7 +149,8 @@ class NioDatagramWorker implements Runnable {
             if (!started) {
                 // Open a selector if this worker didn't start yet.
                 try {
-                    this.selector = selector = Selector.open();
+                    this.selector = selector = channel.getProvider().openSelector();
+                    CONSTRAINT_LEVEL = channel.getConstraintLevel();
                 } catch (final Throwable t) {
                     throw new ChannelException("Failed to create a selector.",
                             t);
@@ -199,7 +205,7 @@ class NioDatagramWorker implements Runnable {
         for (;;) {
             wakenUp.set(false);
 
-            if (NioProviderMetadata.CONSTRAINT_LEVEL != 0) {
+            if (CONSTRAINT_LEVEL != 0) {
                 selectorGuard.writeLock().lock();
                 // This empty synchronization block prevents the selector from acquiring its lock.
                 selectorGuard.writeLock().unlock();
@@ -742,7 +748,7 @@ class NioDatagramWorker implements Runnable {
                 interestOps &= ~Channel.OP_WRITE;
                 interestOps |= channel.getRawInterestOps() & Channel.OP_WRITE;
 
-                switch (NioProviderMetadata.CONSTRAINT_LEVEL) {
+                switch (CONSTRAINT_LEVEL) {
                 case 0:
                     if (channel.getRawInterestOps() != interestOps) {
                         // Set the interesteOps on the SelectionKey

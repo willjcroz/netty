@@ -15,7 +15,8 @@
  */
 package org.jboss.netty.channel.socket.nio;
 
-import static org.jboss.netty.channel.Channels.*;
+import static org.jboss.netty.channel.Channels.fireChannelInterestChanged;
+import static org.jboss.netty.channel.Channels.fireChannelOpen;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -23,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.SocketAddress;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.spi.SelectorProvider;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -51,7 +53,7 @@ import org.jboss.netty.util.internal.ThreadLocalBoolean;
  * @version $Rev$, $Date$
  */
 class NioDatagramChannel extends AbstractChannel
-                                implements org.jboss.netty.channel.socket.DatagramChannel {
+        implements org.jboss.netty.channel.socket.DatagramChannel, NioChannelEntity {
 
     /**
      * The {@link DatagramChannelConfig}.
@@ -119,11 +121,17 @@ class NioDatagramChannel extends AbstractChannel
     private volatile InetSocketAddress localAddress;
     volatile InetSocketAddress remoteAddress;
 
+    private final SelectorProvider provider;
+    private final int CONSTRAINT_LEVEL;
+
     NioDatagramChannel(final ChannelFactory factory,
             final ChannelPipeline pipeline, final ChannelSink sink,
             final NioDatagramWorker worker) {
         super(null, factory, pipeline, sink);
         this.worker = worker;
+        // XXX cast not ideal
+        this.provider = ((NioChannelEntity) factory).getProvider();
+        CONSTRAINT_LEVEL = ((NioChannelEntity) factory).getConstraintLevel();
         datagramChannel = openNonBlockingChannel();
         config = new DefaultNioDatagramChannelConfig(datagramChannel.socket());
 
@@ -354,5 +362,15 @@ class NioDatagramChannel extends AbstractChannel
     public void leaveGroup(InetSocketAddress multicastAddress,
             NetworkInterface networkInterface) {
         throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public SelectorProvider getProvider() {
+        return provider;
+    }
+
+    @Override
+    public int getConstraintLevel() {
+        return CONSTRAINT_LEVEL;
     }
 }
