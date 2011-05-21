@@ -217,10 +217,22 @@ class NioProviderMetadata {
         return -1;
     }
 
+    static int detectConstraintLevel(SelectorProvider provider) {
+        return new ConstraintLevelAutodetector(provider).autodetect();
+    }
+
     private static final class ConstraintLevelAutodetector {
+
+        final SelectorProvider provider;
 
         ConstraintLevelAutodetector() {
             super();
+            this.provider = SelectorProvider.provider();
+        }
+
+        ConstraintLevelAutodetector(SelectorProvider provider) {
+            super();
+            this.provider = provider;
         }
 
         int autodetect() {
@@ -235,7 +247,7 @@ class NioProviderMetadata {
 
             try {
                 // Open a channel.
-                ch = ServerSocketChannel.open();
+                ch = provider.openServerSocketChannel();
 
                 // Configure the channel
                 try {
@@ -248,7 +260,7 @@ class NioProviderMetadata {
 
                 // Prepare the selector loop.
                 try {
-                    loop = new SelectorLoop();
+                    loop = new SelectorLoop(provider);
                 } catch (Throwable e) {
                     logger.warn("Failed to open a temporary selector.", e);
                     return -1;
@@ -388,8 +400,8 @@ class NioProviderMetadata {
         volatile boolean done;
         volatile boolean selecting; // Just an approximation
 
-        SelectorLoop() throws IOException {
-            selector = Selector.open();
+        SelectorLoop(SelectorProvider provider) throws IOException {
+            selector = provider.openSelector();
         }
 
         @Override
@@ -416,6 +428,79 @@ class NioProviderMetadata {
                 }
             }
         }
+    }
+
+    /**
+     * Represents a preferred way to specify an NIO provider's selector constraint level,
+     * which may be explicitly, via auto-detection or via JVM defaults.
+     * <p>
+     * {@link ConstraintSpec#NOWAKE}:
+     *     Do not wake up to get / set interestOps (level 0, most cases)
+     * <p>
+     * {@link ConstraintSpec#WAKE_SET}:
+     *     Wake up to set interestOps only (level 1)
+     * <p>
+     * {@link ConstraintSpec#WAKE_GET_SET}
+     *     Wake up get / set interestOps (level 2, old providers)
+     * <p>
+     * {@link ConstraintSpec#AUTO_DETECT}
+     *     Use auto-detection method to determine level (dangerous/untested)
+     * <p>
+     * {@link ConstraintSpec#JVM_DEFAULT}
+     *     Force the constraint level to that of the default JVM wide provider
+     * <p>
+     * {@link ConstraintSpec#NONE}
+     *     Unspecified level, use JVM default if provider is JVM default, otherwise use
+     *     safest (level 2)
+     */
+    static enum ConstraintSpec {
+        /** Do not wake up to get / set interestOps (level 0, most cases) */
+        NO_WAKE,
+
+        /** Wake up to set interestOps only (level 1) */
+        WAKE_SET,
+
+        /** Wake up get / set interestOps (level 2, old providers) */
+        WAKE_GET_SET,
+
+        // XXX should auto detection option be removed for now?
+        /** Use auto-detection method to determine level (dangerous/untested) */
+        AUTO_DETECT,
+
+        /** Forces the constraint level to that of the default JVM wide provider */
+        JVM_DEFAULT,
+
+        /** Unspecified level, use JVM default if provider is JVM default, otherwise use
+         * safest (level 2) */
+        NONE;
+    }
+
+    static int getConstraintLevel(SelectorProvider provider,
+            ConstraintSpec spec) {
+        // set up provider's selector constraint level:
+        int level;
+        switch (spec) {
+        case NO_WAKE:
+            level = 0;  break;
+        case WAKE_SET:
+            level = 1;  break;
+        case WAKE_GET_SET:
+            level = 2;  break;
+        case AUTO_DETECT:
+            level = detectConstraintLevel(provider);
+            break;
+        case JVM_DEFAULT:
+            level = CONSTRAINT_LEVEL;
+        case NONE:
+        default:
+            // XXX this may not work if new provider is loaded by different classloader
+            if (provider.getClass().equals(SelectorProvider.provider().getClass())) {
+                level = CONSTRAINT_LEVEL;
+            } else {
+                level = 2;
+            }
+        }
+        return level;
     }
 
     public static void main(String[] args) throws Exception {
