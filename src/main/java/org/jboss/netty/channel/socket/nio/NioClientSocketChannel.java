@@ -41,10 +41,11 @@ final class NioClientSocketChannel extends NioSocketChannel {
     private static final InternalLogger logger =
         InternalLoggerFactory.getInstance(NioClientSocketChannel.class);
 
-    private static SocketChannel newSocket() {
+    private static <F extends NioChannelEntity> SocketChannel newSocket(ChannelFactory factory) {
         SocketChannel socket;
         try {
-            socket = SocketChannel.open();
+        	// XXX cast not ideal
+            socket = ((NioChannelEntity) factory).getProvider().openSocketChannel();
         } catch (IOException e) {
             throw new ChannelException("Failed to open a socket.", e);
         }
@@ -80,7 +81,7 @@ final class NioClientSocketChannel extends NioSocketChannel {
             ChannelFactory factory, ChannelPipeline pipeline,
             ChannelSink sink, NioWorker worker) {
 
-        super(null, factory, pipeline, sink, newSocket(), worker);
+        super(null, factory, pipeline, sink, newSocket(factory), worker);
         fireChannelOpen(this);
     }
 }

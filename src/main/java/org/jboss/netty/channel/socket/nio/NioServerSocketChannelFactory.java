@@ -16,6 +16,7 @@
 package org.jboss.netty.channel.socket.nio;
 
 import java.nio.channels.Selector;
+import java.nio.channels.spi.SelectorProvider;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -87,10 +88,13 @@ import org.jboss.netty.util.internal.ExecutorUtil;
  *
  * @apiviz.landmark
  */
-public class NioServerSocketChannelFactory implements ServerSocketChannelFactory {
+public class NioServerSocketChannelFactory
+        implements ServerSocketChannelFactory, NioChannelEntity {
 
     final Executor bossExecutor;
     private final Executor workerExecutor;
+    private final SelectorProvider provider;
+    private final int CONSTRAINT_LEVEL;
     private final ChannelSink sink;
 
     /**
@@ -118,24 +122,94 @@ public class NioServerSocketChannelFactory implements ServerSocketChannelFactory
      *        the {@link Executor} which will execute the I/O worker threads
      * @param workerCount
      *        the maximum number of I/O worker threads
+     * @param provider
+     *        the {@link SelectorProvider} implementation to be used by this factory
      */
     public NioServerSocketChannelFactory(
             Executor bossExecutor, Executor workerExecutor,
             int workerCount) {
-        if (bossExecutor == null) {
+        this(new Builder(bossExecutor, workerExecutor).workerCount(workerCount));
+    }
+
+    private NioServerSocketChannelFactory(Builder builder) {
+        if (builder.bossExecutor == null) {
             throw new NullPointerException("bossExecutor");
         }
-        if (workerExecutor == null) {
+        if (builder.workerExecutor == null) {
             throw new NullPointerException("workerExecutor");
         }
+        int workerCount = builder.getWorkerCount();
         if (workerCount <= 0) {
             throw new IllegalArgumentException(
                     "workerCount (" + workerCount + ") " +
                     "must be a positive integer.");
         }
-        this.bossExecutor = bossExecutor;
-        this.workerExecutor = workerExecutor;
+        this.bossExecutor = builder.bossExecutor;
+        this.workerExecutor = builder.workerExecutor;
+        this.provider = builder.getProvider();
+        this.CONSTRAINT_LEVEL = NioProviderMetadata.getConstraintLevel(provider,
+                builder.getConstraintSpec());
         sink = new NioServerSocketPipelineSink(workerExecutor, workerCount);
+    }
+
+    /**
+     * Implements the 'Builder' design pattern to allow for more complex initialisation
+     * of this NIO based channel factory. In particular, this builder allows custom NIO
+     * provider (SPI) implementations to be used.
+     * <p>
+     * To obtain a channel factory via this builder use the provided constructor with its
+     * mandatory argument(s) and then use the provided public methods in order to manually
+     * specify the exact configuration of the factory. All setting methods for optional
+     * configuration values return a reference to {@code this} allowing invocation chaining
+     * Finally, invoke {@link #build()} in order to obtain a channel factory that is ready
+     * to use.
+     * <p>
+     * Builder instances can be reused and reconfigured between invocations of
+     * {@link #build()}, each factory returned having a separate NIO implementation context.
+     * <p>
+     * Example usage:
+     * <p>
+     * <pre><code>
+     *     NioServerSocketChannelFactory factory =
+     *         new NioServerSocketChannelFactory.Builder(bossExecutor, workerExecutor)
+     *             .provider(customNioProvider)
+     *             .constraintSpec(NioProviderMetadata.ConstraintSpec.NO_WAKE)
+     *             .workerCount(4)
+     *             .build();
+     * </code></pre>
+     *<p>
+     * Instances of this class are <em>not thread safe</em> and should be synchronized externally
+     * if shared between threads.
+     */
+    public static final class Builder
+            extends NioChannelFactoryBuilder<NioServerSocketChannelFactory, Builder> {
+        // mandatory:
+        private final Executor bossExecutor;
+
+        /**
+         * Creates a builder instance that will return initialised and ready to use
+         * {@link NioServerSocketChannelFactory} instances. Before invoking build the
+         * optional parameters can be changed from their default values.
+         *
+         * @param bossExecutor
+         *        the {@link Executor} which will execute the boss threads
+         * @param workerExecutor
+         *        the {@link Executor} which will execute the I/O worker threads
+         */
+        public Builder (Executor bossExecutor, Executor workerExecutor) {
+            super(workerExecutor);
+            this.bossExecutor = bossExecutor;
+        }
+
+        @Override
+        public NioServerSocketChannelFactory build() {
+            return new NioServerSocketChannelFactory(this);
+        }
+
+        @Override
+        Builder getThis() {
+            return this;
+        }
     }
 
     @Override
@@ -146,5 +220,15 @@ public class NioServerSocketChannelFactory implements ServerSocketChannelFactory
     @Override
     public void releaseExternalResources() {
         ExecutorUtil.terminate(bossExecutor, workerExecutor);
+    }
+
+    @Override
+    public SelectorProvider getProvider() {
+        return provider;
+    }
+
+    @Override
+    public int getConstraintLevel() {
+        return CONSTRAINT_LEVEL;
     }
 }

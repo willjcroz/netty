@@ -62,7 +62,7 @@ class NioWorker implements Runnable {
     private static final InternalLogger logger =
         InternalLoggerFactory.getInstance(NioWorker.class);
 
-    private static final int CONSTRAINT_LEVEL = NioProviderMetadata.CONSTRAINT_LEVEL;
+    private final int CONSTRAINT_LEVEL = NioProviderMetadata.CONSTRAINT_LEVEL;
 
     static final int CLEANUP_INTERVAL = 256; // XXX Hard-coded value, but won't need customization.
 
@@ -94,7 +94,7 @@ class NioWorker implements Runnable {
             if (!started) {
                 // Open a selector if this worker didn't start yet.
                 try {
-                    this.selector = selector = Selector.open();
+                    this.selector = selector = channel.getProvider().openSelector();
                 } catch (Throwable t) {
                     throw new ChannelException(
                             "Failed to create a selector.", t);

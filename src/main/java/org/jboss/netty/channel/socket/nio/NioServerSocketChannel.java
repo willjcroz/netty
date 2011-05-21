@@ -15,12 +15,13 @@
  */
 package org.jboss.netty.channel.socket.nio;
 
-import static org.jboss.netty.channel.Channels.*;
+import static org.jboss.netty.channel.Channels.fireChannelOpen;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.spi.SelectorProvider;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -43,7 +44,7 @@ import org.jboss.netty.logging.InternalLoggerFactory;
  *
  */
 class NioServerSocketChannel extends AbstractServerChannel
-                             implements org.jboss.netty.channel.socket.ServerSocketChannel {
+        implements org.jboss.netty.channel.socket.ServerSocketChannel, NioChannelEntity {
 
     private static final InternalLogger logger =
         InternalLoggerFactory.getInstance(NioServerSocketChannel.class);
@@ -53,6 +54,9 @@ class NioServerSocketChannel extends AbstractServerChannel
     volatile Selector selector;
     private final ServerSocketChannelConfig config;
 
+    private final SelectorProvider provider;
+    private final int CONSTRAINT_LEVEL;
+
     NioServerSocketChannel(
             ChannelFactory factory,
             ChannelPipeline pipeline,
@@ -60,8 +64,12 @@ class NioServerSocketChannel extends AbstractServerChannel
 
         super(factory, pipeline, sink);
 
+        // XXX cast not ideal
+        this.provider = ((NioChannelEntity) factory).getProvider();
+        this.CONSTRAINT_LEVEL = ((NioChannelEntity) factory).getConstraintLevel();
+
         try {
-            socket = ServerSocketChannel.open();
+            socket = provider.openServerSocketChannel();
         } catch (IOException e) {
             throw new ChannelException(
                     "Failed to open a server socket.", e);
@@ -108,5 +116,15 @@ class NioServerSocketChannel extends AbstractServerChannel
     @Override
     protected boolean setClosed() {
         return super.setClosed();
+    }
+
+    @Override
+    public SelectorProvider getProvider() {
+        return provider;
+    }
+
+    @Override
+    public int getConstraintLevel() {
+        return CONSTRAINT_LEVEL;
     }
 }

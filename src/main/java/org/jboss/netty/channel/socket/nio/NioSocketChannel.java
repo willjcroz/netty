@@ -15,11 +15,12 @@
  */
 package org.jboss.netty.channel.socket.nio;
 
-import static org.jboss.netty.channel.Channels.*;
+import static org.jboss.netty.channel.Channels.fireChannelInterestChanged;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.spi.SelectorProvider;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -45,7 +46,7 @@ import org.jboss.netty.util.internal.ThreadLocalBoolean;
  *
  */
 class NioSocketChannel extends AbstractChannel
-                                implements org.jboss.netty.channel.socket.SocketChannel {
+        implements org.jboss.netty.channel.socket.SocketChannel, NioChannelEntity {
 
     private static final int ST_OPEN = 0;
     private static final int ST_BOUND = 1;
@@ -55,6 +56,8 @@ class NioSocketChannel extends AbstractChannel
 
     final SocketChannel socket;
     final NioWorker worker;
+    private final SelectorProvider provider;
+    private final int CONSTRAINT_LEVEL;
     private final NioSocketChannelConfig config;
     private volatile InetSocketAddress localAddress;
     private volatile InetSocketAddress remoteAddress;
@@ -82,6 +85,10 @@ class NioSocketChannel extends AbstractChannel
 
         this.socket = socket;
         this.worker = worker;
+
+        // XXX cast not ideal
+        this.provider = ((NioChannelEntity) factory).getProvider();
+        this.CONSTRAINT_LEVEL = ((NioChannelEntity) factory).getConstraintLevel();
         config = new DefaultNioSocketChannelConfig(socket.socket());
 
         // TODO Move the state variable to AbstractChannel so that we don't need
@@ -92,6 +99,16 @@ class NioSocketChannel extends AbstractChannel
                 state = ST_CLOSED;
             }
         });
+    }
+
+    @Override
+    public SelectorProvider getProvider() {
+        return provider;
+    }
+
+    @Override
+    public int getConstraintLevel() {
+        return CONSTRAINT_LEVEL;
     }
 
     @Override
